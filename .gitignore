@@ -7,8 +7,7 @@ dist
 .env
 
 # Exclude sensitive team, event, and result data
-data/team.json
-data/events.json
-data/results.json
+data/*.json
+!data/*.example.json
 data/results/
 data/logs/
