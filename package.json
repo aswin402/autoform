@@ -10,6 +10,8 @@
     "run:ram": "tsx src/index.ts --person ramkumar-subramanian",
     "run:reset": "tsx src/index.ts --person devishree-mohan --reset",
     "run:all": "tsx src/index.ts --all-team",
+    "run:red": "tsx src/index.ts --red-events",
+    "run:red:all": "tsx src/index.ts --red-events --all-team",
     "build": "tsc"
   },
   "dependencies": {

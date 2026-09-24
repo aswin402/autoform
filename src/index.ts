@@ -51,6 +51,14 @@ function parseArgs(): {
       urls = args[++i].split(",").map(u => u.trim());
     } else if (a === "--event-ids") {
       eventIds = args[++i].split(",").map(id => parseInt(id.trim(), 10));
+    } else if (a === "--red-events") {
+      const redPath = path.resolve(process.cwd(), "data", "red-events.json");
+      if (fs.existsSync(redPath)) {
+        const raw = JSON.parse(fs.readFileSync(redPath, "utf-8"));
+        urls = raw.filter((e: any) => e.url && e.url.includes("luma.com")).map((e: any) => e.url);
+      } else {
+        console.error("❌ data/red-events.json not found.");
+      }
     }
   }
 
