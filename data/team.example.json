@@ -1,0 +1,30 @@
+[
+  {
+    "id": "sample-attendee",
+    "name": "Alex Doe",
+    "firstName": "Alex",
+    "lastName": "Doe",
+    "email": "alex.doe@example.com",
+    "phone": "+1234567890",
+    "company": "ExampleCorp",
+    "role": "Software Engineer",
+    "telegram": "@alex_doe",
+    "twitter": "https://x.com/alex_doe",
+    "linkedin": "https://linkedin.com/in/alexdoe",
+    "website": "example.com",
+    "pitch": "Building decentralized intelligent agents for autonomous coordination.",
+    "gender": "Other",
+    "age": 28,
+    "country": "United States",
+    "persona": {
+      "bio": "Building decentralized intelligent agents for autonomous coordination.",
+      "primaryTrack": "Engineering / Core Contributor",
+      "interests": ["AI", "Web3", "Infrastructure"]
+    },
+    "qaMemory": {
+      "how did you hear about this event": "X / Twitter",
+      "what best describes you": "Software Engineer",
+      "what are you hoping to gain from this event": "Networking and ecosystem collaboration."
+    }
+  }
+]

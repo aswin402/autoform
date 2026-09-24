@@ -1,0 +1,14 @@
+node_modules
+dist
+.browser-profile
+.browser-profile-*
+*.log
+.DS_Store
+.env
+
+# Exclude sensitive team, event, and result data
+data/team.json
+data/events.json
+data/results.json
+data/results/
+data/logs/

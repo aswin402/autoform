@@ -1,0 +1,23 @@
+{
+  "name": "autoform",
+  "version": "1.0.0",
+  "description": "Autonomous event registration engine for TOKEN2049 & KBW events with stealth browser automation, Radix combobox solver, and anti-bot pacing",
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "run:devishree": "tsx src/index.ts --person devishree-mohan",
+    "run:kamesh": "tsx src/index.ts --person kameshwaran-elangovan",
+    "run:ram": "tsx src/index.ts --person ramkumar-subramanian",
+    "run:reset": "tsx src/index.ts --person devishree-mohan --reset",
+    "run:all": "tsx src/index.ts --all-team",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "playwright": "^1.49.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
