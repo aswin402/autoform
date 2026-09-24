@@ -194,9 +194,19 @@ export class MonitorServer {
     result.attendeeId = this.attendee.id;
 
     if (result.status === "confirmed_success") {
+      const prevFailedIdx = this.state.unsuccessEvents.findIndex(e => e.eventUrl === result.eventUrl);
+      if (prevFailedIdx >= 0) {
+        this.state.unsuccessEvents.splice(prevFailedIdx, 1);
+        this.state.stats.failedCount = Math.max(0, this.state.stats.failedCount - 1);
+      }
       this.state.stats.successCount++;
       this.state.successEvents.push(result);
     } else if (result.status === "waitlist_joined") {
+      const prevFailedIdx = this.state.unsuccessEvents.findIndex(e => e.eventUrl === result.eventUrl);
+      if (prevFailedIdx >= 0) {
+        this.state.unsuccessEvents.splice(prevFailedIdx, 1);
+        this.state.stats.failedCount = Math.max(0, this.state.stats.failedCount - 1);
+      }
       this.state.stats.waitlistCount++;
       this.state.successEvents.push(result);
     } else {

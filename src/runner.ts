@@ -141,7 +141,7 @@ export class EventAutomationRunner {
     for (let i = startIndex; i < this.events.length; i++) {
       currentEventIndex = i;
 
-      if (isShuttingDown) break;
+      if (isShuttingDown || page.isClosed()) break;
 
       // Handle interactive pause via Dashboard or API
       while (this.monitor.isPaused() && !isShuttingDown) {
@@ -197,6 +197,7 @@ export class EventAutomationRunner {
       console.log(`\n⏱️ [Pacing]: Resting 5.0s before advancing to next event (${nextIndex}/${this.events.length})...`);
       this.monitor.log(`⏱️ Resting 5.0s before next event: ${nextTitle}`, "pacing");
       for (let sec = 5; sec > 0; sec--) {
+        if (page.isClosed()) break;
         this.monitor.updateCurrentEvent({
           index: i + 1,
           total: this.events.length,
@@ -206,8 +207,10 @@ export class EventAutomationRunner {
           step: `Pacing: Resting ${sec}s before next event...`,
           elapsedSeconds: Math.round((Date.now() - eventStartTime) / 1000),
         });
-        await page.waitForTimeout(1000);
+        await page.waitForTimeout(1000).catch(() => {});
       }
+
+      if (page.isClosed()) break;
 
       // Check 2-minute breather every 50 events
       if (
@@ -219,8 +222,9 @@ export class EventAutomationRunner {
         this.monitor.setBreather(true, 120);
 
         for (let s = 120; s > 0; s--) {
+          if (page.isClosed()) break;
           this.monitor.setBreather(true, s);
-          await page.waitForTimeout(1000);
+          await page.waitForTimeout(1000).catch(() => {});
         }
         this.monitor.setBreather(false, 0);
         this.monitor.log(`✅ Breather cooldown finished. Resuming automation!`, "success");
