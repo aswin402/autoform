@@ -100,27 +100,37 @@ export function resolveFieldValue(
   }
 
   // 10. Twitter / X
-  if (/twitter|x\b|handle/i.test(combined) && !/instagram|facebook|linkedin/i.test(combined)) {
-    if (/url|link/i.test(combined)) {
-      return { value: attendee.twitter, confidence: 0.98, reason: "Twitter URL" };
+  if (/twitter|x\b|handle/i.test(combined) && !/instagram|facebook|linkedin|telegram/i.test(combined)) {
+    if (/url|link|format\s*like|https?:\/\//i.test(combined)) {
+      let tw = attendee.twitter || "https://x.com";
+      if (!tw.startsWith("http")) tw = `https://x.com/${tw.replace(/^@/, "")}`;
+      return { value: tw, confidence: 0.98, reason: "Twitter URL" };
     }
-    const handle = attendee.twitter.replace(/^https?:\/\/(x\.com|twitter\.com)\//, "@");
+    const handle = attendee.twitter ? attendee.twitter.replace(/^https?:\/\/(x\.com|twitter\.com)\//, "@") : `@${attendee.firstName.toLowerCase()}`;
     return { value: handle, confidence: 0.98, reason: "Twitter handle" };
   }
 
   // 11. LinkedIn
   if (/linkedin/i.test(combined)) {
-    let url = attendee.linkedin;
+    let url = attendee.linkedin || "https://linkedin.com";
     if (!url.startsWith("http")) url = `https://${url}`;
     return { value: url, confidence: 0.99, reason: "LinkedIn URL" };
   }
 
-  // 12. Company / Organization / Fund
-  if (/company|organization|organisation|fund|project\s*name|startup|firm/i.test(combined)) {
-    return { value: attendee.company, confidence: 0.99, reason: "Company name" };
+  // 12. GitHub
+  if (/github|git\b/i.test(combined)) {
+    const handle = attendee.telegram ? attendee.telegram.replace("@", "") : attendee.firstName.toLowerCase();
+    return { value: `https://github.com/${handle}`, confidence: 0.95, reason: "GitHub profile URL" };
   }
 
-  // 13. Role / Title / Job
+  // 13. Website / URL / Domain / Portfolio (MUST be checked BEFORE Company name!)
+  if (/website|domain|homepage|\burl\b|\blink\b/i.test(combined) || prompt.type === "url") {
+    let site = attendee.website || "openledger.xyz";
+    if (!site.startsWith("http")) site = `https://${site}`;
+    return { value: site, confidence: 0.99, reason: "Website URL" };
+  }
+
+  // 14. Role / Title / Job (MUST be checked BEFORE Company name!)
   if (/role|title|designation|job|position|occupation/i.test(combined)) {
     if (prompt.options && prompt.options.length > 0) {
       const match = prompt.options.find(o => 
@@ -131,11 +141,9 @@ export function resolveFieldValue(
     return { value: attendee.role, confidence: 0.95, reason: "Job title" };
   }
 
-  // 14. Website / URL / Portfolio
-  if (/website|url|link|domain/i.test(combined)) {
-    let site = attendee.website;
-    if (!site.startsWith("http")) site = `https://${site}`;
-    return { value: site, confidence: 0.95, reason: "Website" };
+  // 15. Company / Organization / Fund
+  if (/company|organization|organisation|fund|project\s*name|startup|firm|소속/i.test(combined)) {
+    return { value: attendee.company, confidence: 0.99, reason: "Company name" };
   }
 
   // 15. Bio / Pitch / Description / About
