@@ -422,6 +422,22 @@ export class EventAutomationRunner {
         }
       }
 
+      // Ensure any stray open dropdown popover is dismissed cleanly without closing dialog
+      await page.evaluate(() => {
+        const listbox = document.querySelector("[role='listbox'], .lux-menu-wrapper, [data-floating-ui-portal] [role='option']");
+        if (listbox) {
+          const stopper = (e: KeyboardEvent) => {
+            if (e.key === "Escape") {
+              e.stopPropagation();
+              e.stopImmediatePropagation();
+            }
+          };
+          window.addEventListener("keydown", stopper, { capture: true, once: true });
+          listbox.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", keyCode: 27, bubbles: true }));
+        }
+      }).catch(() => {});
+      await page.waitForTimeout(200);
+
       // Locate submit action button (checking dialog first, then page)
       const submitBtn = await this.findSubmitButton(page, hasDialog ? dialog : null);
 
@@ -446,6 +462,9 @@ export class EventAutomationRunner {
           btn.focus();
           btn.click();
           btn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+          if ((btn as any).form) {
+            (btn as any).form.requestSubmit();
+          }
         }).catch(() => {});
 
         // Cloudflare Turnstile & verification modal handling
@@ -608,10 +627,24 @@ export class EventAutomationRunner {
       }
 
       const info = await el.evaluate((node: any) => {
+        if (node.classList && node.classList.contains("ticket-type-btn")) return null;
+        if (node.closest && node.closest(".ticket-type-btn")) return null;
+
         let text = "";
-        if (node.id) {
+        if (node.getAttribute("aria-labelledby")) {
+          const lbl = document.getElementById(node.getAttribute("aria-labelledby"));
+          if (lbl) text = lbl.innerText;
+        }
+        if (!text && node.id) {
           const lbl = document.querySelector(`label[for="${node.id}"]`) as HTMLElement;
           if (lbl) text = lbl.innerText;
+        }
+        if (!text) {
+          const wrapper = node.closest(".lux-input-wrapper, label");
+          if (wrapper) {
+            const lbl = wrapper.querySelector("label, .lux-input-label");
+            if (lbl) text = (lbl as HTMLElement).innerText;
+          }
         }
         if (!text) {
           let cur = node.parentElement;
@@ -621,7 +654,7 @@ export class EventAutomationRunner {
               break;
             }
             const prev = cur.previousElementSibling;
-            if (prev && (prev.tagName === "LABEL" || prev.tagName === "SPAN" || prev.tagName === "P" || prev.tagName === "DIV")) {
+            if (prev && (prev.tagName === "LABEL" || prev.tagName === "SPAN" || prev.tagName === "P")) {
               text = (prev as HTMLElement).innerText;
               break;
             }
@@ -655,6 +688,8 @@ export class EventAutomationRunner {
           options: opts,
         };
       });
+
+      if (!info) continue;
 
       fields.push({
         locator: el,
@@ -733,19 +768,43 @@ export class EventAutomationRunner {
 
         // ENSURE DROPDOWN IS CLOSED: If popover is still open, close it cleanly
         const isPopoverStillOpen = await page.evaluate(() => {
-          const pop = document.querySelector("[role='listbox'], [data-radix-popper-content-wrapper], div[cmdk-root]");
+          const pop = document.querySelector("[role='listbox'], [data-radix-popper-content-wrapper], .lux-menu-wrapper");
           return pop && (pop as HTMLElement).offsetWidth > 0 && (pop as HTMLElement).offsetHeight > 0;
         }).catch(() => false);
 
         if (isPopoverStillOpen) {
           console.log(`   🧹 Auto-closing open dropdown menu...`);
-          await page.locator("[role='dialog'] h2, [role='dialog'] h3, form h3, .section-title, .event-header").first().click({ force: true }).catch(() => {});
+          await page.evaluate(() => {
+            const listbox = document.querySelector("[role='listbox'], .lux-menu-wrapper, [data-floating-ui-portal] [role='option']");
+            if (listbox) {
+              const stopper = (e: KeyboardEvent) => {
+                if (e.key === "Escape") {
+                  e.stopPropagation();
+                  e.stopImmediatePropagation();
+                }
+              };
+              window.addEventListener("keydown", stopper, { capture: true, once: true });
+              listbox.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", keyCode: 27, bubbles: true }));
+            }
+          }).catch(() => {});
           await page.waitForTimeout(200);
         }
 
         return chosen.text;
       } else {
-        await page.locator("[role='dialog'] h2, [role='dialog'] h3, form h3, .section-title, .event-header").first().click({ force: true }).catch(() => {});
+        await page.evaluate(() => {
+          const listbox = document.querySelector("[role='listbox'], .lux-menu-wrapper, [data-floating-ui-portal] [role='option']");
+          if (listbox) {
+            const stopper = (e: KeyboardEvent) => {
+              if (e.key === "Escape") {
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+              }
+            };
+            window.addEventListener("keydown", stopper, { capture: true, once: true });
+            listbox.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", keyCode: 27, bubbles: true }));
+          }
+        }).catch(() => {});
         return "None";
       }
     }
