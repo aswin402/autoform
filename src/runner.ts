@@ -71,9 +71,25 @@ export class EventAutomationRunner {
 
     const page = this.context.pages()[0] || (await this.context.newPage());
 
+    const existingSuccessUrls = new Set(
+      this.monitor.getState().successEvents.map(e => e.eventUrl)
+    );
+
     // Compute resume index
     let startIndex = 0;
-    if (this.options.reset) {
+    if (this.options.retryFailed) {
+      startIndex = 0;
+      const unconfirmedCount = this.events.filter(e => !existingSuccessUrls.has(e.url)).length;
+      this.monitor.log(`🔄 [--retry-failed]: Retrying unconfirmed/failed events (${unconfirmedCount} remaining) for ${this.attendee.name}.`, "info");
+      if (unconfirmedCount === 0) {
+        console.log(`\n🎉 All ${this.events.length} events are already confirmed successful for ${this.attendee.name}!`);
+        this.monitor.log(`🎉 100% of events already confirmed successful for ${this.attendee.name}!`, "success");
+        this.monitor.setStatus("finished");
+        this.monitor.updateCurrentEvent(null);
+        await this.context.close().catch(() => {});
+        return;
+      }
+    } else if (this.options.reset) {
       startIndex = 0;
       this.monitor.log(`🔄 [--reset]: Starting fresh from Event #1 for ${this.attendee.name}.`, "info");
     } else if (typeof this.options.startFromIndex === "number") {
@@ -90,7 +106,7 @@ export class EventAutomationRunner {
       }
     }
 
-    if (startIndex >= this.events.length) {
+    if (!this.options.retryFailed && startIndex >= this.events.length) {
       console.log(`\n🎉 All ${this.events.length} events have already been completed for ${this.attendee.name}!`);
       this.monitor.log(`🎉 All ${this.events.length} events already processed for ${this.attendee.name}! Use --reset to re-run.`, "success");
       this.monitor.setStatus("finished");
@@ -98,10 +114,6 @@ export class EventAutomationRunner {
       await this.context.close().catch(() => {});
       return;
     }
-
-    const existingSuccessUrls = new Set(
-      this.monitor.getState().successEvents.map(e => e.eventUrl)
-    );
 
     let processedCountInSession = 0;
     let isShuttingDown = false;

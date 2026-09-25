@@ -192,8 +192,12 @@ async function main() {
     console.log(`📊 Prior Progress: ${progress.attempted}/${targetEvents.length} attempted (${progress.confirmed} confirmed)`);
     console.log(`==================================================================\n`);
 
-    if (config.allTeam && progress.isComplete && !config.reset) {
+    if (config.allTeam && progress.isComplete && !config.reset && !config.retryFailed) {
       console.log(`⏩ [Skip]: ${attendee.name} has already completed all ${targetEvents.length} events! Moving to next attendee...`);
+      continue;
+    }
+    if (config.allTeam && config.retryFailed && progress.confirmed >= targetEvents.length) {
+      console.log(`⏩ [Skip]: ${attendee.name} has 100% confirmed registrations (${progress.confirmed}/${targetEvents.length})! Moving to next attendee...`);
       continue;
     }
 
@@ -224,7 +228,7 @@ async function main() {
       reset: config.reset,
       retryFailed: config.retryFailed,
       limit: config.limit,
-      startFromIndex: (config.urls || config.eventIds) ? (config.startFrom ?? 0) : config.startFrom,
+      startFromIndex: config.retryFailed ? 0 : ((config.urls || config.eventIds) ? (config.startFrom ?? 0) : config.startFrom),
       fieldDelayMs: 2000,
       eventDelayMs: 5000,
       enableBreather: true,

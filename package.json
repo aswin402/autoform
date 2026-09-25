@@ -12,6 +12,7 @@
     "run:all": "tsx src/index.ts --all-team",
     "run:red": "tsx src/index.ts --red-events",
     "run:red:all": "tsx src/index.ts --red-events --all-team",
+    "retry:red": "tsx src/index.ts --red-events --all-team --retry-failed",
     "build": "tsc"
   },
   "dependencies": {
