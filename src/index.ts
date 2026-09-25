@@ -65,7 +65,7 @@ function parseArgs(): {
   return { personId, allTeam, reset, retryFailed, headless, limit, startFrom, port, urls, eventIds };
 }
 
-function getAttendeeProgress(attendeeId: string, totalEvents: number): {
+function getAttendeeProgress(attendeeId: string, totalEvents: number, targetEvents?: EventItem[]): {
   attempted: number;
   confirmed: number;
   failed: number;
@@ -91,12 +91,17 @@ function getAttendeeProgress(attendeeId: string, totalEvents: number): {
     return { attempted: 0, confirmed: 0, failed: 0, nextIndex: 1, isComplete: false };
   }
 
-  const confirmed = data.stats?.successCount || 0;
+  let confirmed = data.stats?.successCount || 0;
+  if (Array.isArray(data.successEvents) && targetEvents && targetEvents.length > 0) {
+    const successUrls = new Set(data.successEvents.map((e: any) => (e.eventUrl || "").toLowerCase().replace(/\/+$/, "")));
+    confirmed = targetEvents.filter(e => successUrls.has((e.url || "").toLowerCase().replace(/\/+$/, ""))).length;
+  }
+
   const attempted = data.stats?.totalAttempted || 0;
   const failed = data.stats?.failedCount || 0;
   const lastIdx = typeof data.lastProcessedIndex === "number" ? data.lastProcessedIndex : attempted - 1;
   const nextIndex = lastIdx >= 0 ? lastIdx + 2 : 1;
-  const isComplete = attempted >= totalEvents;
+  const isComplete = confirmed >= totalEvents;
 
   return { attempted, confirmed, failed, nextIndex, isComplete };
 }
@@ -154,7 +159,7 @@ async function main() {
   console.log(`👥 Team Members Progress & Resume Points:`);
 
   team.forEach((m, idx) => {
-    const p = getAttendeeProgress(m.id, targetEvents.length);
+    const p = getAttendeeProgress(m.id, targetEvents.length, targetEvents);
     const statusText = p.isComplete
       ? `✅ Completed (${p.confirmed} confirmed)`
       : p.attempted > 0
@@ -183,7 +188,7 @@ async function main() {
 
   for (let aIdx = 0; aIdx < attendeesToRun.length; aIdx++) {
     const attendee = attendeesToRun[aIdx];
-    const progress = getAttendeeProgress(attendee.id, targetEvents.length);
+    const progress = getAttendeeProgress(attendee.id, targetEvents.length, targetEvents);
 
     console.log(`\n==================================================================`);
     console.log(`👤 Active Attendee [${aIdx + 1}/${attendeesToRun.length}]: ${attendee.name} (${attendee.email})`);
