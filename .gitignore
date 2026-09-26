@@ -6,8 +6,19 @@ dist
 .DS_Store
 .env
 
-# Exclude sensitive team, event, and result data
+# Exclude logs and databases
+data/logs/
+data/*.log
+data/*.db
+data/*.db-journal
+data/*.sqlite
+
+# Allow core events, team, and results data for multi-machine automations
 data/*.json
 !data/*.example.json
-data/results/
-data/logs/
+!data/events.json
+!data/team.json
+!data/token2049-free-events.json
+!data/token2049-successful-events.json
+!data/results.json
+!data/results/devishree-mohan.json

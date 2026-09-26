@@ -58,6 +58,7 @@ export interface EventResult {
   allFields: FieldRecord[];
   timestamp: string;
   durationSeconds?: number;
+  eventLogs?: string[];
 }
 
 export interface LogEntry {

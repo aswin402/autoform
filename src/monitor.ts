@@ -2,6 +2,7 @@ import http from "http";
 import fs from "fs";
 import path from "path";
 import { LiveState, LogEntry, EventResult, Attendee, TeamMemberSummary } from "./types.js";
+import { DatabaseManager } from "./database.js";
 
 export class MonitorServer {
   private state: LiveState;
@@ -13,6 +14,7 @@ export class MonitorServer {
   private port: number;
   private isPausedState = false;
   private attendee: Attendee;
+  private db: DatabaseManager;
 
   constructor(attendee: Attendee, totalEvents: number, port = 3005) {
     this.port = port;
@@ -61,6 +63,11 @@ export class MonitorServer {
       successEvents: [],
       unsuccessEvents: [],
     };
+
+    this.db = new DatabaseManager();
+    try {
+      this.db.backfillFromResults();
+    } catch {}
 
     this.loadPersistedResults();
   }
@@ -230,7 +237,18 @@ export class MonitorServer {
       fs.appendFileSync(this.logFilePath, `[${new Date().toISOString()}] ${auditMsg}\n`, "utf-8");
     } catch {}
 
+    // Save to SQLite database
+    try {
+      this.db.saveRegistration(result, result.eventLogs);
+    } catch (e: any) {
+      console.warn(`[Monitor] SQLite database save notice: ${e.message}`);
+    }
+
     this.saveResults();
+  }
+
+  public getDatabase(): DatabaseManager {
+    return this.db;
   }
 
   public setStatus(status: LiveState["status"]) {
@@ -333,6 +351,30 @@ export class MonitorServer {
           }
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(JSON.stringify(summary));
+          return;
+        }
+
+        if (url === "/api/db/summary") {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify(this.db.getSummary(this.attendee.id)));
+          return;
+        }
+
+        if (url === "/api/db/registrations") {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify(this.db.getRegistrations({ attendeeId: this.attendee.id })));
+          return;
+        }
+
+        if (url === "/api/db/submitted") {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify(this.db.getRegistrations({ attendeeId: this.attendee.id, isSubmitted: 1 })));
+          return;
+        }
+
+        if (url === "/api/db/not-submitted") {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify(this.db.getRegistrations({ attendeeId: this.attendee.id, isSubmitted: 0 })));
           return;
         }
 

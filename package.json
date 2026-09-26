@@ -13,6 +13,16 @@
     "run:red": "tsx src/index.ts --red-events",
     "run:red:all": "tsx src/index.ts --red-events --all-team",
     "retry:red": "tsx src/index.ts --red-events --all-team --retry-failed",
+    "run:token2049": "tsx src/index.ts --token2049 --person devishree-mohan",
+    "run:token2049:all": "tsx src/index.ts --token2049 --all-team",
+    "run:successful": "tsx src/index.ts --successful --person devishree-mohan",
+    "run:successful:all": "tsx src/index.ts --successful --all-team",
+    "retry:token2049": "tsx src/index.ts --token2049 --all-team --retry-failed",
+    "db:summary": "tsx src/db-cli.ts summary",
+    "db:submitted": "tsx src/db-cli.ts submitted",
+    "db:failed": "tsx src/db-cli.ts not-submitted",
+    "db:fields": "tsx src/db-cli.ts fields",
+    "db:export": "tsx src/db-cli.ts export",
     "build": "tsc"
   },
   "dependencies": {

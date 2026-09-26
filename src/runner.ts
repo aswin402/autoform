@@ -6,6 +6,7 @@ import { resolveFieldValue } from "./resolver.js";
 import { MonitorServer } from "./monitor.js";
 
 interface FormFieldInfo {
+  id?: string;
   locator: any;
   tag: string;
   type: string;
@@ -15,6 +16,7 @@ interface FormFieldInfo {
   isRequired: boolean;
   isCombobox: boolean;
   options?: string[];
+  valueFilled?: string;
 }
 
 export class EventAutomationRunner {
@@ -95,14 +97,19 @@ export class EventAutomationRunner {
     } else if (typeof this.options.startFromIndex === "number") {
       startIndex = this.options.startFromIndex;
       this.monitor.log(`🎯 [--start-from]: Starting from Event #${startIndex + 1} for ${this.attendee.name}.`, "info");
+    } else if (this.options.retryFailed) {
+      startIndex = 0;
+      this.monitor.log(`🎯 [--retry-failed]: Checking all ${this.events.length} events (skipping already confirmed).`, "info");
     } else {
       const saved = this.monitor.getState();
-      if (typeof saved.lastProcessedIndex === "number" && saved.lastProcessedIndex >= 0) {
-        startIndex = saved.lastProcessedIndex + 1;
-        this.monitor.log(`⏩ Auto-resuming saved progress: starting at Event #${startIndex + 1}/${this.events.length} (${startIndex} previously completed/attempted).`, "info");
-      } else if (saved.stats.totalAttempted > 0) {
-        startIndex = saved.stats.totalAttempted;
-        this.monitor.log(`⏩ Auto-resuming from attempted count: starting at Event #${startIndex + 1}/${this.events.length}.`, "info");
+      const lastEventId = saved.lastProcessedEventId;
+      const matchingIdx = lastEventId ? this.events.findIndex(e => e.id === lastEventId) : -1;
+      if (matchingIdx >= 0) {
+        startIndex = matchingIdx + 1;
+        this.monitor.log(`⏩ Auto-resuming saved progress: starting at Event #${startIndex + 1}/${this.events.length} (after Event #${lastEventId}).`, "info");
+      } else {
+        startIndex = 0;
+        this.monitor.log(`🎯 Starting campaign: evaluating all ${this.events.length} events for ${this.attendee.name}.`, "info");
       }
     }
 
@@ -263,6 +270,12 @@ export class EventAutomationRunner {
     total: number,
     startTime: number
   ): Promise<EventResult> {
+    const eventLogs: string[] = [];
+    const addLog = (msg: string) => {
+      const entry = `[${new Date().toLocaleTimeString()}] ${msg}`;
+      eventLogs.push(entry);
+    };
+
     const result: EventResult = {
       eventId: ev.id,
       eventTitle: ev.title,
@@ -273,6 +286,7 @@ export class EventAutomationRunner {
       status: "failed",
       requiredFields: [],
       allFields: [],
+      eventLogs,
       timestamp: new Date().toISOString(),
     };
 
@@ -306,6 +320,7 @@ export class EventAutomationRunner {
       // 1. Navigate to event page
       await page.goto(ev.url, { waitUntil: "domcontentloaded", timeout: 30000 });
       await page.waitForTimeout(2000);
+      addLog(`Navigated to event page: ${ev.title} (${ev.url})`);
 
       // STAGE 1: Pre-Check (Already Registered on Page Load)
       const pageText = await page.locator("body").innerText().catch(() => "");
@@ -314,6 +329,7 @@ export class EventAutomationRunner {
       if (isAlreadyOnPage) {
         console.log(`🎯 [PRE-CHECK: ALREADY REGISTERED]: Attendee is already registered for this event.`);
         this.monitor.log(`🎯 [#${ev.id}] Already Registered: ${ev.title}`, "success");
+        addLog("Pre-Check: Attendee already registered on page load.");
         result.status = "confirmed_success";
         result.alreadyRegistered = true;
         page.off("response", responseHandler);
@@ -325,13 +341,17 @@ export class EventAutomationRunner {
       if (!hasJoinBtn && /sold out|registration closed|rsvp closed/i.test(pageText)) {
         console.log(`🚫 [EVENT CLOSED]: Event is sold out or registrations are closed.`);
         this.monitor.log(`🚫 [#${ev.id}] Event Sold Out / Closed: ${ev.title}`, "warn");
+        addLog("Pre-Check: Event is sold out or registrations are closed.");
         result.status = "failed";
         result.failureReason = "Event sold out or registration closed";
         page.off("response", responseHandler);
         return result;
       }
 
-      // 2. Open Registration Form
+      // 2. Select any required tickets on the page before clicking registration button
+      await this.handleTicketSelection(page);
+
+      // 3. Open Registration Form
       this.monitor.updateCurrentEvent({
         index,
         total,
@@ -342,22 +362,29 @@ export class EventAutomationRunner {
         elapsedSeconds: Math.round((Date.now() - startTime) / 1000),
       });
 
-      const registerBtn = page
-        .locator(
-          "button:has-text('Register'), button:has-text('Request to Join'), button:has-text('RSVP'), button:has-text('Join Event'), button:has-text('Apply to Attend'), button:has-text('Join Waitlist'), a:has-text('Register')"
-        )
-        .first();
+      const registerBtn = await this.findRegistrationButton(page);
 
-      if ((await registerBtn.count()) > 0 && (await registerBtn.isVisible().catch(() => false))) {
-        await registerBtn.click({ force: true });
-        await page.waitForTimeout(1500);
+      if (registerBtn) {
+        const btnText = (await registerBtn.innerText().catch(() => "")).replace(/\n/g, " ").trim();
+        console.log(`🚀 Found registration button [${btnText}]. Scrolling and clicking...`);
+        await registerBtn.scrollIntoViewIfNeeded().catch(() => {});
+        await page.waitForTimeout(300);
+        await registerBtn.click().catch(async () => {
+          await registerBtn.click({ force: true }).catch(() => {});
+        });
+        addLog(`Clicked initial event registration button [${btnText}].`);
+
+        // Wait up to 3500ms for modal / form container to appear
+        await page.waitForSelector("[role='dialog'], form:has(input), .lux-modal, [aria-modal='true'], .lux-card:has(input)", { timeout: 3500 }).catch(() => {});
+        await page.waitForTimeout(600);
       }
 
       // STAGE 2: In-Modal Already Registered Check
-      const modalText = await page.locator("[role='dialog'], form, .lux-modal").innerText().catch(() => "");
+      const modalText = await page.locator("[role='dialog'], form, .lux-modal, [aria-modal='true']").innerText().catch(() => "");
       if (/already registered|already applied|duplicate entry/i.test(modalText)) {
         console.log(`🎯 [MODAL: ALREADY REGISTERED]: Modal indicates attendee has already registered.`);
         this.monitor.log(`🎯 [#${ev.id}] Already Registered (Notice): ${ev.title}`, "success");
+        addLog("Modal Pre-Check: Attendee already registered notice detected.");
         result.status = "confirmed_success";
         result.alreadyRegistered = true;
         await page.keyboard.press("Escape").catch(() => {});
@@ -365,15 +392,36 @@ export class EventAutomationRunner {
         return result;
       }
 
-      // 3. Scan & Extract Form Fields
-      const dialog = page.locator("[role='dialog'], form, .lux-modal").first();
-      const hasDialog = (await dialog.count()) > 0;
+      // 4. Scan & Extract Form Fields
+      let dialog: any = page.locator("[role='dialog'], .lux-modal, [aria-modal='true']").first();
+      let hasDialog = (await dialog.count().catch(() => 0)) > 0 && (await dialog.isVisible().catch(() => false));
 
       if (!hasDialog) {
+        const formEl = page.locator("form:has(input), .lux-card:has(input)").first();
+        if ((await formEl.count().catch(() => 0)) > 0 && (await formEl.isVisible().catch(() => false))) {
+          dialog = formEl;
+          hasDialog = true;
+        }
+      }
+
+      const targetContainer = hasDialog ? dialog : page;
+      const interactiveInputsCount = await targetContainer
+        .locator("input:not([type='hidden']), textarea, select, [role='combobox']")
+        .count()
+        .catch(() => 0);
+
+      const isSingleClickRSVP = !hasDialog && interactiveInputsCount === 0;
+
+      if (isSingleClickRSVP) {
         console.log("ℹ️ Single-click RSVP action (no complex form).");
+        addLog("Single-click RSVP action (no multi-field modal).");
       } else {
-        const fields = await this.extractAllFields(page, dialog);
+        // Re-check ticket selection inside the form container if needed
+        await this.handleTicketSelection(page, targetContainer);
+
+        const fields = await this.extractAllFields(page, targetContainer);
         console.log(`📋 Detected ${fields.length} interactive form fields.`);
+        addLog(`Detected ${fields.length} interactive form fields.`);
 
         for (let fIdx = 0; fIdx < fields.length; fIdx++) {
           const f = fields[fIdx];
@@ -403,81 +451,60 @@ export class EventAutomationRunner {
           // Fill field with Combobox / Select / Input handler
           const val = await this.fillField(page, f, ev);
           rec.valueFilled = val;
+          addLog(`Filled [${f.label}]: "${val || ''}"`);
 
           // 2.0s human delay per field (per user rule)
           await page.waitForTimeout(this.options.fieldDelayMs || 2000);
         }
 
         // PRE-FLIGHT CHECK: Ensure NO required dropdown or field is left blank before submitting!
-        await this.verifyAndCompleteRequiredFields(page, dialog, fields, ev);
+        await this.verifyAndCompleteRequiredFields(page, targetContainer, fields, ev);
       }
 
-      // 4. Click Submit Button
+      // 5. Click Submit Button
       this.monitor.updateCurrentEvent({
         index,
         total,
         eventId: ev.id,
         eventTitle: ev.title,
         eventUrl: ev.url,
-        step: "Submitting registration form...",
+        step: isSingleClickRSVP ? "Awaiting RSVP confirmation..." : "Submitting registration form...",
         elapsedSeconds: Math.round((Date.now() - startTime) / 1000),
       });
 
-      // Ensure any ticket type is selected if unselected
-      if (hasDialog) {
-        const unselectedTickets = dialog.locator("button.ticket-type-btn:not(.selected)").first();
-        const hasSelectedTicket = (await dialog.locator("button.ticket-type-btn.selected").count().catch(() => 0)) > 0;
-        if (!hasSelectedTicket && (await unselectedTickets.count().catch(() => 0)) > 0) {
-          console.log("   🎟️ Selecting first available ticket type...");
-          await unselectedTickets.click({ force: true }).catch(() => {});
-          await page.waitForTimeout(400);
-        }
-      }
-
       // Ensure any stray open dropdown popover is dismissed cleanly without closing dialog
-      await page.evaluate(() => {
-        const listbox = document.querySelector("[role='listbox'], .lux-menu-wrapper, [data-floating-ui-portal] [role='option']");
-        if (listbox) {
-          const stopper = (e: KeyboardEvent) => {
-            if (e.key === "Escape") {
-              e.stopPropagation();
-              e.stopImmediatePropagation();
-            }
-          };
-          window.addEventListener("keydown", stopper, { capture: true, once: true });
-          listbox.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", keyCode: 27, bubbles: true }));
-        }
-      }).catch(() => {});
-      await page.waitForTimeout(200);
+      await this.closeOpenDropdownMenu(page);
 
-      // Locate submit action button (checking dialog first, then page)
-      const submitBtn = await this.findSubmitButton(page, hasDialog ? dialog : null);
+      // Locate submit action button (checking dialog first, then page) - only if not single-click RSVP
+      const submitBtn = isSingleClickRSVP ? null : await this.findSubmitButton(page, hasDialog ? dialog : null);
 
       if (submitBtn) {
         const btnText = (await submitBtn.innerText().catch(() => "")).replace(/\n/g, " ");
         console.log(`🚀 Found submission button [${btnText}]. Scrolling and clicking...`);
         this.monitor.log(`🚀 [#${ev.id}] Clicking submit button: "${btnText}"`, "info");
+        addLog(`Clicked submission button: "${btnText}" with human-like mouse dispatch.`);
         await submitBtn.scrollIntoViewIfNeeded().catch(() => {});
         await page.waitForTimeout(400);
 
-        // Click with Playwright click AND DOM click fallback
-        let clicked = false;
-        try {
-          await submitBtn.click({ force: true, timeout: 5000 });
-          clicked = true;
-          console.log("   ✅ Playwright click dispatched.");
-        } catch (e: any) {
-          console.log("   Standard click failed, executing direct DOM click dispatch...");
-        }
+        // Dispatch natural mouse click on submit button
+        const box = await submitBtn.boundingBox().catch(() => null);
+        if (box && box.width > 0 && box.height > 0) {
+          const targetX = box.x + box.width / 2;
+          const targetY = box.y + box.height / 2;
 
-        await submitBtn.evaluate((btn: HTMLElement) => {
-          btn.focus();
-          btn.click();
-          btn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
-          if ((btn as any).form) {
-            (btn as any).form.requestSubmit();
-          }
-        }).catch(() => {});
+          await page.mouse.move(targetX, targetY, { steps: 5 }).catch(() => {});
+          await page.waitForTimeout(200);
+
+          await page.mouse.down().catch(() => {});
+          await page.waitForTimeout(120);
+          await page.mouse.up().catch(() => {});
+          console.log("   ✅ Native mouse click dispatched on submit button.");
+        } else {
+          await submitBtn.click().catch(async () => {
+            await submitBtn.click({ force: true }).catch(() => {});
+          });
+          console.log("   ✅ Standard click dispatched on submit button.");
+        }
 
         // Cloudflare Turnstile & verification modal handling
         console.log("⏳ Watching for Turnstile clearance or server response for up to 25s...");
@@ -505,17 +532,54 @@ export class EventAutomationRunner {
 
           await page.waitForTimeout(1000);
 
-          // Check if interactive Cloudflare Turnstile checkbox exists
-          for (const f of page.frames()) {
-            if (f.url().includes("challenges.cloudflare.com")) {
-              try {
-                const cb = f.locator("input[type='checkbox'], span.mark, #challenge-stage, div.cb-lb, #checkbox").first();
-                if ((await cb.count().catch(() => 0)) > 0 && (await cb.isVisible({ timeout: 500 }).catch(() => false))) {
-                  console.log("   👆 Interactive Cloudflare Turnstile checkbox detected! Clicking...");
-                  this.monitor.log(`🛡️ [#${ev.id}] Clicking Cloudflare Turnstile verification checkbox...`, "pacing");
-                  await cb.click({ force: true, timeout: 1000 }).catch(() => {});
-                }
-              } catch (e) {}
+          // Check if Terms modal popped up after clicking submit
+          const acceptedTerms = await this.handleTermsModals(page);
+          if (acceptedTerms) {
+            console.log("🎯 Accepted event terms during submission! Re-clicking submit button...");
+            addLog("Accepted event terms modal during submission.");
+            await page.waitForTimeout(500);
+            const reSubmitBtn = await this.findSubmitButton(page, hasDialog ? dialog : null);
+            if (reSubmitBtn) {
+              await reSubmitBtn.click({ force: true }).catch(() => {});
+            }
+          }
+
+          // Detect if a verification / Turnstile challenge modal is presented
+          const isVerifyingModal = await page.evaluate(() => {
+            return /Verifying Your Browser|Verify you are human|Checking your browser/i.test(document.body?.innerText || "");
+          }).catch(() => false);
+
+          if (isVerifyingModal) {
+            console.log("   ⚠️ [Verification Challenge]: 'Verifying Your Browser' challenge is active. Please complete it in the browser window...");
+            this.monitor.log(`⚠️ [#${ev.id}] Human verification challenge detected. Awaiting completion in browser window...`, "warn");
+            this.monitor.updateCurrentEvent({
+              index,
+              total,
+              eventId: ev.id,
+              eventTitle: ev.title,
+              eventUrl: ev.url,
+              step: "Awaiting human verification challenge in browser...",
+              elapsedSeconds: Math.round((Date.now() - startTime) / 1000),
+            });
+
+            // Wait up to 45s for the challenge modal to clear or resolve
+            for (let waitSec = 0; waitSec < 45; waitSec++) {
+              await page.waitForTimeout(1000);
+              const stillVerifying = await page.evaluate(() => {
+                return /Verifying Your Browser|Verify you are human|Checking your browser/i.test(document.body?.innerText || "");
+              }).catch(() => false);
+
+              const token = await page.evaluate(() => {
+                const el = document.querySelector("input[name='cf-turnstile-response'], input[name*='turnstile']") as HTMLInputElement;
+                return el && el.value ? el.value : null;
+              }).catch(() => null);
+
+              if (!stillVerifying || (token && token.length > 20)) {
+                console.log("   ✅ Verification challenge cleared! Resuming submission...");
+                this.monitor.log(`🛡️ [#${ev.id}] Verification cleared! Finalizing submission...`, "success");
+                addLog("Human verification challenge cleared.");
+                break;
+              }
             }
           }
 
@@ -527,6 +591,7 @@ export class EventAutomationRunner {
           if (token && token.length > 20) {
             console.log("🎯 Turnstile cleared with token! Re-clicking submit button to finalize submission...");
             this.monitor.log(`🛡️ [#${ev.id}] Cloudflare Turnstile cleared! Finalizing submission...`, "success");
+            addLog("Cloudflare Turnstile cleared with token. Re-submitting.");
             const finalizeBtn = await this.findSubmitButton(page, hasDialog ? dialog : null);
             if (finalizeBtn) {
               await finalizeBtn.scrollIntoViewIfNeeded().catch(() => {});
@@ -550,20 +615,23 @@ export class EventAutomationRunner {
             break;
           }
 
-          // Check if dialog closed
-          const isModalOpen = hasDialog && (await dialog.isVisible().catch(() => false));
-          if (!isModalOpen) {
-            console.log("🎯 Modal dismissed!");
-            break;
+          // Check if dialog closed (only if a modal was actually opened)
+          if (hasDialog) {
+            const isModalOpen = await dialog.isVisible().catch(() => false);
+            if (!isModalOpen) {
+              console.log("🎯 Modal dismissed!");
+              break;
+            }
           }
         }
-      } else {
+      } else if (!isSingleClickRSVP) {
         console.log("⚠️ No submit button found with standard selector.");
+        addLog("No submit button found with standard selector.");
       }
 
       await page.waitForTimeout(1000);
 
-      // 5. STRICT POST-SUBMISSION VERIFICATION (0 Tolerance for False Successes)
+      // 6. STRICT POST-SUBMISSION VERIFICATION (0 Tolerance for False Successes)
       const postBodyText = await page.locator("body").innerText().catch(() => "");
       const isAlready = isAlreadyRegisteredServer || /already registered|already applied|duplicate entry|이미 등록|이미 신청/i.test(postBodyText);
 
@@ -573,7 +641,7 @@ export class EventAutomationRunner {
         await page.locator("button[aria-label='Close'], button.lux-modal-close, button:has-text('✕')").first().click().catch(() => {});
       }
 
-      const isModalStillOpen = await dialog.isVisible().catch(() => false);
+      const isModalStillOpen = hasDialog && (await dialog.isVisible().catch(() => false));
       const errTexts = await page.locator("text='This field is required'").all();
       let visibleErrors = 0;
       for (const err of errTexts) {
@@ -593,26 +661,31 @@ export class EventAutomationRunner {
         if (isAlready) result.alreadyRegistered = true;
         this.monitor.log(`✅ [#${ev.id}] Confirmed Success: ${ev.title}`, "success");
         console.log(`✅ [CONFIRMED SUCCESS]: Event #${ev.id} registered successfully!`);
+        addLog(`Confirmed Success: ${ev.title}`);
       } else if (isWaitlisted) {
         result.status = "waitlist_joined";
         this.monitor.log(`⏳ [#${ev.id}] Waitlist Joined / Approval Pending: ${ev.title}`, "warn");
         console.log(`⏳ [WAITLIST JOINED]: Event #${ev.id} application submitted.`);
+        addLog(`Waitlist Joined: ${ev.title}`);
       } else if (visibleErrors > 0 && isModalStillOpen) {
         result.status = "failed";
         result.failureReason = `Form validation incomplete: ${visibleErrors} required field(s) were missing or unselected.`;
         this.monitor.log(`❌ [#${ev.id}] Incomplete: ${result.failureReason}`, "error");
         console.log(`❌ [SUBMISSION FAILED]: Event #${ev.id} blocked by validation errors.`);
+        addLog(`Failed: Form validation incomplete (${visibleErrors} fields unselected)`);
       } else {
         result.status = "failed";
         result.failureReason = isModalStillOpen ? "Modal remained open without server confirmation" : "No ticket confirmation received";
         this.monitor.log(`❌ [#${ev.id}] Failed: ${result.failureReason}`, "error");
         console.log(`❌ [SUBMISSION FAILED]: Event #${ev.id} did not complete.`);
+        addLog(`Failed: ${result.failureReason}`);
       }
     } catch (err: any) {
       console.error(`💥 Error automating event #${ev.id}:`, err.message);
       result.status = "failed";
       result.failureReason = err.message;
       this.monitor.log(`💥 [#${ev.id}] Exception: ${err.message}`, "error");
+      addLog(`Exception: ${err.message}`);
     } finally {
       page.off("response", responseHandler);
     }
@@ -624,7 +697,7 @@ export class EventAutomationRunner {
   private async extractAllFields(page: Page, dialog: any): Promise<FormFieldInfo[]> {
     // Look for all interactive inputs: text, comboboxes, custom select triggers, native selects, checkboxes
     const rawElements = await dialog
-      .locator("input:not([type='hidden']), textarea, select, [role='combobox'], [aria-haspopup='listbox'], button[data-state]")
+      .locator("input:not([type='hidden']), textarea, select, [role='combobox'], [role='checkbox'], [aria-haspopup='listbox'], button[data-state]")
       .all();
 
     const fields: FormFieldInfo[] = [];
@@ -641,6 +714,7 @@ export class EventAutomationRunner {
       const info = await el.evaluate((node: any) => {
         if (node.classList && node.classList.contains("ticket-type-btn")) return null;
         if (node.closest && node.closest(".ticket-type-btn")) return null;
+        if (node.tagName === "BUTTON" && node.closest(".checkbox-label, .lux-checkbox") && node.getAttribute("role") !== "checkbox") return null;
 
         let text = "";
         if (node.getAttribute("aria-labelledby")) {
@@ -684,14 +758,21 @@ export class EventAutomationRunner {
           node.tagName === "SELECT" ||
           node.hasAttribute("data-radix-collection-item");
 
+        const isCheckbox =
+          (node.type || "").toLowerCase() === "checkbox" ||
+          node.getAttribute("role") === "checkbox" ||
+          node.classList?.contains("checkbox") ||
+          node.closest?.(".lux-checkbox, .checkbox-label") !== null;
+
         let opts: string[] = [];
         if (node.tagName === "SELECT") {
           opts = Array.from(node.options).map((o: any) => (o.text || o.value || "").trim());
         }
 
         return {
+          id: node.id || "",
           tag: node.tagName.toLowerCase(),
-          type: (node.type || "").toLowerCase(),
+          type: isCheckbox ? "checkbox" : (node.type || "").toLowerCase(),
           name: node.getAttribute("name") || "",
           placeholder: node.getAttribute("placeholder") || "",
           label: (text || "").replace(/\n+/g, " ").trim(),
@@ -704,6 +785,7 @@ export class EventAutomationRunner {
       if (!info) continue;
 
       fields.push({
+        id: info.id,
         locator: el,
         tag: info.tag,
         type: info.type,
@@ -719,15 +801,29 @@ export class EventAutomationRunner {
     return fields;
   }
 
+  private getDynamicLocator(page: Page, f: FormFieldInfo): any {
+    if (f.id) {
+      const byId = page.locator(`#${f.id}`);
+      return byId;
+    }
+    if (f.name) {
+      const byName = page.locator(`[name="${f.name}"]`);
+      return byName;
+    }
+    return f.locator;
+  }
+
   private async fillField(page: Page, f: FormFieldInfo, ev: EventItem): Promise<string> {
+    const targetLocator = this.getDynamicLocator(page, f);
+
     // 1. Dropdown / Combobox
     if (f.isCombobox || f.tag === "select") {
-      await f.locator.scrollIntoViewIfNeeded().catch(() => {});
-      await f.locator.click({ force: true }).catch(() => {});
+      await targetLocator.scrollIntoViewIfNeeded().catch(() => {});
+      await targetLocator.click({ force: true }).catch(() => {});
       await page.waitForTimeout(400);
 
       // Wait for Radix listbox options portal to mount
-      await page.waitForSelector("[role='option'], [data-radix-collection-item], div[cmdk-item], .lux-option", { timeout: 800 }).catch(() => {});
+      await page.waitForSelector("[role='option'], [data-radix-collection-item], div[cmdk-item], .lux-option", { timeout: 2000 }).catch(() => {});
 
       const optionElements = await page.locator("[role='option'], [data-radix-collection-item], div[cmdk-item], .lux-option").all();
       const availableOptions: { element: any; text: string }[] = [];
@@ -776,62 +872,70 @@ export class EventAutomationRunner {
         } catch {
           await chosen.element.click({ force: true }).catch(() => {});
         }
-        await page.waitForTimeout(300);
+        await page.waitForTimeout(400);
 
-        // ENSURE DROPDOWN IS CLOSED: If popover is still open, close it cleanly
-        const isPopoverStillOpen = await page.evaluate(() => {
-          const pop = document.querySelector("[role='listbox'], [data-radix-popper-content-wrapper], .lux-menu-wrapper");
-          return pop && (pop as HTMLElement).offsetWidth > 0 && (pop as HTMLElement).offsetHeight > 0;
+        // If the combobox menu remains open (e.g. multi-select / tag picker), close it cleanly
+        const stillOpen = await page.evaluate(() => {
+          const pop = document.querySelector(
+            "[data-floating-ui-portal] .lux-menu, [role='listbox']:not([aria-hidden='true']), .lux-menu:not([aria-hidden='true']), [cmdk-root]:not([aria-hidden='true'])"
+          );
+          return !!(pop && (pop as HTMLElement).offsetWidth > 0 && (pop as HTMLElement).offsetHeight > 0);
         }).catch(() => false);
 
-        if (isPopoverStillOpen) {
-          console.log(`   🧹 Auto-closing open dropdown menu...`);
-          await page.evaluate(() => {
-            const listbox = document.querySelector("[role='listbox'], .lux-menu-wrapper, [data-floating-ui-portal] [role='option']");
-            if (listbox) {
-              const stopper = (e: KeyboardEvent) => {
-                if (e.key === "Escape") {
-                  e.stopPropagation();
-                  e.stopImmediatePropagation();
-                }
-              };
-              window.addEventListener("keydown", stopper, { capture: true, once: true });
-              listbox.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", keyCode: 27, bubbles: true }));
-            }
-          }).catch(() => {});
-          await page.waitForTimeout(200);
+        if (stillOpen) {
+          console.log(`   🧹 Multi-select menu still open; dismissing popover cleanly...`);
+          await this.closeOpenDropdownMenu(page);
         }
 
+        f.valueFilled = chosen.text;
         return chosen.text;
       } else {
-        await page.evaluate(() => {
-          const listbox = document.querySelector("[role='listbox'], .lux-menu-wrapper, [data-floating-ui-portal] [role='option']");
-          if (listbox) {
-            const stopper = (e: KeyboardEvent) => {
-              if (e.key === "Escape") {
-                e.stopPropagation();
-                e.stopImmediatePropagation();
-              }
-            };
-            window.addEventListener("keydown", stopper, { capture: true, once: true });
-            listbox.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", keyCode: 27, bubbles: true }));
-          }
-        }).catch(() => {});
+        await this.closeOpenDropdownMenu(page);
+        f.valueFilled = "None";
         return "None";
       }
     }
 
     // 2. Checkboxes (terms, consent, marketing)
     if (f.type === "checkbox") {
-      let isChecked = await f.locator.isChecked().catch(() => false);
+      let isChecked = await targetLocator.isChecked().catch(() => false);
       if (!isChecked) {
-        await f.locator.click({ force: true }).catch(() => {});
-        await page.waitForTimeout(100);
-        isChecked = await f.locator.isChecked().catch(() => false);
+        // Try clicking directly or on its container/label
+        await targetLocator.click({ force: true }).catch(async () => {
+          await targetLocator.evaluate((el: any) => {
+            const clickable = el.closest("label, .lux-checkbox, [role='checkbox'], span.checkbox-icon") || el;
+            clickable.click();
+          }).catch(() => {});
+        });
+
+        // Pacing & modal animation wait
+        await page.waitForTimeout(400);
+
+        // Check if Event Terms modal appeared and accept it
+        await this.handleTermsModals(page);
+
+        isChecked = await targetLocator.isChecked().catch(() => false);
       }
+
+      // If still not checked, try clicking the label or terms button
       if (!isChecked) {
-        // Force checked via DOM dispatch
-        await f.locator.evaluate((el: any) => {
+        const labelOrTermsBtn = await targetLocator.evaluateHandle((el: any) => {
+          const wrapper = el.closest("label, .checkbox-label, div");
+          const termsBtn = wrapper?.querySelector("button, a");
+          return termsBtn || wrapper || el;
+        }).catch(() => null);
+
+        if (labelOrTermsBtn) {
+          await (labelOrTermsBtn as any).click().catch(() => {});
+          await page.waitForTimeout(400);
+          await this.handleTermsModals(page);
+          isChecked = await targetLocator.isChecked().catch(() => false);
+        }
+      }
+
+      // Final fallback: DOM force check if not checked
+      if (!isChecked) {
+        await targetLocator.evaluate((el: any) => {
           const desc = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "checked");
           if (desc && desc.set) desc.set.call(el, true);
           else el.checked = true;
@@ -839,7 +943,10 @@ export class EventAutomationRunner {
           el.dispatchEvent(new Event("click", { bubbles: true }));
           el.dispatchEvent(new Event("change", { bubbles: true }));
         }).catch(() => {});
+        await page.waitForTimeout(200);
+        await this.handleTermsModals(page);
       }
+
       console.log(`   ☑️ Checked [${f.label.slice(0, 30)}]`);
       return "true";
     }
@@ -863,9 +970,9 @@ export class EventAutomationRunner {
     }
 
     if (val) {
-      await f.locator.scrollIntoViewIfNeeded().catch(() => {});
-      await f.locator.focus().catch(() => {});
-      await f.locator.fill(val).catch(() => {});
+      await targetLocator.scrollIntoViewIfNeeded().catch(() => {});
+      await targetLocator.focus().catch(() => {});
+      await targetLocator.fill(val).catch(() => {});
       console.log(`   ✍️ Filled [${f.label.slice(0, 25)}]: "${val.length > 20 ? val.slice(0, 18) + '...' : val}"`);
     }
 
@@ -879,47 +986,284 @@ export class EventAutomationRunner {
     ev: EventItem
   ): Promise<void> {
     for (const f of fields) {
-      if (!f.isRequired) continue;
-
+      const targetLocator = this.getDynamicLocator(page, f);
       if (f.isCombobox) {
-        const val = await f.locator.evaluate((node: any) => node.value || node.innerText || "").catch(() => "");
-        if (!val || val.toLowerCase().includes("select")) {
-          console.log(`   ⚠️ [Pre-Flight Warning]: Required combobox [${f.label}] was unfulfilled. Attempting recovery...`);
-          await this.fillField(page, f, ev);
+        if (f.isRequired) {
+          const isFulfilled = await targetLocator.evaluate((node: any) => {
+            if (node.value && node.value.trim().length > 0 && !node.value.toLowerCase().includes("select")) return true;
+            const txt = (node.innerText || "").trim();
+            if (txt && !txt.toLowerCase().includes("select") && !/^select\s*(one|all|any)?/i.test(txt)) return true;
+            const wrapper = node.closest(".lux-menu-trigger-wrapper, .select-input-wrapper, .lux-input-wrapper, div") || node;
+            const tags = wrapper.querySelectorAll(".lux-tag, [class*='badge'], [class*='tag'], [class*='pill'], [class*='chip'], button");
+            if (tags.length > 0) return true;
+            const fullText = (wrapper.innerText || "").trim();
+            const lines = fullText.split("\n").map((l: string) => l.trim()).filter((l: string) => l && !l.includes("?") && !l.toLowerCase().includes("select"));
+            if (lines.length > 0) return true;
+            return false;
+          }).catch(() => false);
+
+          if (!isFulfilled && !f.valueFilled) {
+            console.log(`   ⚠️ [Pre-Flight Warning]: Required combobox [${f.label}] was unfulfilled. Attempting recovery...`);
+            await this.fillField(page, f, ev);
+          }
         }
-      } else if (f.type !== "checkbox") {
-        const val = await f.locator.inputValue().catch(() => "");
-        if (!val || val.trim() === "") {
-          console.log(`   ⚠️ [Pre-Flight Warning]: Required input [${f.label}] is blank. Filling with "None"...`);
-          await f.locator.fill("None").catch(() => {});
+      } else if (f.type === "checkbox") {
+        const isTermsOrConsent = /agree|term|consent|약관|동의|policy|privacy/i.test(f.label);
+        if (f.isRequired || isTermsOrConsent) {
+          const isChecked = await targetLocator.isChecked({ timeout: 1000 }).catch(() => false);
+          if (!isChecked) {
+            console.log(`   ⚠️ [Pre-Flight Warning]: Checkbox [${f.label.slice(0, 30)}] was unchecked. Checking...`);
+            await this.fillField(page, f, ev);
+          }
+        }
+      }
+    }
+
+    // Check if any "Event Terms" modal is currently lingering open
+    await this.handleTermsModals(page);
+
+    // Check if there is an unchecked terms checkbox and explicit error message
+    const hasUncheckedTerms = await page.evaluate(() => {
+      const unchecked = document.querySelector("input[type='checkbox']:not(:checked), [role='checkbox'][aria-checked='false']");
+      return !!unchecked;
+    }).catch(() => false);
+
+    if (hasUncheckedTerms) {
+      const explicitError = page.locator(".text-danger, .error, [role='alert'], .text-red-500").filter({ hasText: /agree to the event terms|must agree/i }).first();
+      if ((await explicitError.count().catch(() => 0)) > 0 && (await explicitError.isVisible().catch(() => false))) {
+        console.log(`   ⚠️ [Pre-Flight Warning]: Explicit terms error detected on unchecked box! Resolving...`);
+        const termsCb = page.locator("input[type='checkbox']:not(:checked), [role='checkbox'][aria-checked='false']").first();
+        if ((await termsCb.count().catch(() => 0)) > 0) {
+          await termsCb.click({ force: true }).catch(() => {});
+          await page.waitForTimeout(400);
+          await this.handleTermsModals(page);
         }
       }
     }
   }
 
-  private async findSubmitButton(page: Page, dialog: any): Promise<any | null> {
-    const selectors = [
-      "button[type='submit']",
-      "button.variant-color-brand",
-      "button.lux-button.brand",
-      "button.brand:not([role='combobox'])",
-      ".lux-collapse.shown button",
-      "button:has-text('Request to Join')",
-      "button:has-text('Register')",
-      "button:has-text('RSVP')",
-      "button:has-text('Submit')",
-      "button:has-text('Join Waitlist')",
-      "button:has-text('Apply to Join')",
-      "button:has-text('Apply to Attend')",
-      "button:has-text('Apply')",
-      "button:has-text('Get Tickets')",
+  private async handleTermsModals(page: Page): Promise<boolean> {
+    const termsModalSelectors = [
+      "[role='dialog']:has-text('Event Terms')",
+      ".lux-modal:has-text('Event Terms')",
+      "[role='dialog']:has-text('Terms & Conditions')",
+      "[role='dialog']:has-text('Terms and Conditions')",
+      "div:has-text('Event Terms'):has(button:has-text('Sign & Accept'))",
+      "div:has-text('Event Terms'):has(button:has-text('Accept'))",
+    ];
+
+    let foundModal: any = null;
+    for (const sel of termsModalSelectors) {
+      const modal = page.locator(sel).first();
+      if ((await modal.count().catch(() => 0)) > 0 && (await modal.isVisible().catch(() => false))) {
+        foundModal = modal;
+        break;
+      }
+    }
+
+    if (foundModal) {
+      console.log(`   📜 "Event Terms" modal detected! Inspecting digital signature requirement...`);
+      this.monitor.log(`📜 Detected Event Terms modal. Checking signature input...`, "info");
+
+      // Check if signature input exists (textarea / input / .lux-naked-input)
+      const sigInput = foundModal.locator("textarea, input[type='text'], .lux-naked-input, [placeholder*='Smith' i]").first();
+      if ((await sigInput.count().catch(() => 0)) > 0 && (await sigInput.isVisible().catch(() => false))) {
+        const curVal = await sigInput.inputValue().catch(() => "");
+        if (!curVal || curVal.trim() === "") {
+          console.log(`   ✍️ Signing terms waiver with attendee legal name: "${this.attendee.name}"...`);
+          await sigInput.focus().catch(() => {});
+          await sigInput.fill(this.attendee.name).catch(() => {});
+          await page.waitForTimeout(300);
+        }
+      }
+
+      // Check for Sign & Accept or Accept button inside modal
+      const modalAcceptBtn = foundModal.locator(
+        "button:has-text('Sign & Accept'), button:has-text('Sign and Accept'), button:has-text('Accept Terms'), button:has-text('Accept & Continue'), button:has-text('Agree & Continue'), button:has-text('Accept'), button:has-text('I Agree'), button:has-text('Agree')"
+      ).first();
+
+      if ((await modalAcceptBtn.count().catch(() => 0)) > 0 && (await modalAcceptBtn.isVisible().catch(() => false))) {
+        const btnText = (await modalAcceptBtn.innerText().catch(() => "")).trim();
+        console.log(`   ✅ Clicking "${btnText}" in Event Terms modal...`);
+        await modalAcceptBtn.click({ force: true }).catch(() => {});
+        await page.waitForTimeout(600);
+        return true;
+      }
+    }
+
+    // Generic fallback for any other terms accept buttons on page
+    const acceptSelectors = [
+      "button:has-text('Sign & Accept')",
+      "button:has-text('Sign and Accept')",
+      "button:has-text('Accept Terms')",
+      "button:has-text('Accept terms')",
+      "button:has-text('Accept & Continue')",
+      "button:has-text('Agree & Continue')",
+      "button:has-text('Accept')",
+      "button:has-text('I Agree')",
+      "button:has-text('Agree')",
+      "button:has-text('동의')",
+      "button:has-text('약관 동의')",
+      ".lux-modal button.primary:has-text('Accept')",
+      "[role='dialog'] button:has-text('Accept')",
+    ];
+
+    for (const sel of acceptSelectors) {
+      try {
+        const btn = page.locator(sel).first();
+        if ((await btn.count().catch(() => 0)) > 0 && (await btn.isVisible().catch(() => false))) {
+          const text = await btn.innerText().catch(() => "");
+          console.log(`   📜 Terms accept button detected! Clicking "${text.trim() || sel}"...`);
+          await btn.click({ force: true }).catch(() => {});
+          await page.waitForTimeout(600);
+          return true;
+        }
+      } catch (e) {}
+    }
+
+    return false;
+  }
+
+  private async closeOpenDropdownMenu(page: Page): Promise<void> {
+    const isMenuOpen = await page.evaluate(() => {
+      const pop = document.querySelector(
+        "[data-floating-ui-portal] .lux-menu:not([aria-hidden='true']), [role='listbox']:not([aria-hidden='true']), [data-radix-select-content][data-state='open'], .lux-menu:not([aria-hidden='true']), [cmdk-root]:not([aria-hidden='true'])"
+      );
+      return !!(pop && (pop as HTMLElement).offsetWidth > 0 && (pop as HTMLElement).offsetHeight > 0);
+    }).catch(() => false);
+
+    if (isMenuOpen) {
+      console.log(`   🧹 Soft-closing lingering dropdown menu without closing modal...`);
+
+      // 1. If Floating UI portal overlay exists, click it (standard Floating UI dismiss)
+      const portalOverlay = page.locator("[data-floating-ui-portal] .lux-overlay").first();
+      if ((await portalOverlay.count().catch(() => 0)) > 0 && (await portalOverlay.isVisible().catch(() => false))) {
+        await portalOverlay.click({ force: true }).catch(() => {});
+        await page.waitForTimeout(300);
+      } else {
+        // 2. Safe click on modal/form header to blur popover
+        const modalHeader = page.locator("[role='dialog'] h1, [role='dialog'] h2, [role='dialog'] .lux-modal-header, .lux-modal h3, .lux-modal-title, .form-header").first();
+        if ((await modalHeader.count().catch(() => 0)) > 0 && (await modalHeader.isVisible().catch(() => false))) {
+          await modalHeader.click({ force: true }).catch(() => {});
+        } else {
+          // 3. Fallback: mouse click on margin (10, 10)
+          await page.mouse.click(10, 10).catch(() => {});
+        }
+        await page.waitForTimeout(300);
+      }
+    }
+  }
+
+  private async handleTicketSelection(page: Page, container?: any): Promise<boolean> {
+    const root = container || page;
+
+    // 1. Multi-ticket counter buttons (e.g. .ticket-type-btn.multi)
+    const multiTickets = await root.locator(".ticket-type-btn.multi").all();
+    if (multiTickets.length > 0) {
+      let anySelected = false;
+      for (const mt of multiTickets) {
+        const countText = (await mt.locator(".count").innerText().catch(() => "0")).trim();
+        if (countText !== "0" && countText !== "") {
+          anySelected = true;
+          break;
+        }
+      }
+
+      if (!anySelected) {
+        console.log("   🎟️ Selecting 1 ticket for multi-ticket option...");
+        for (const mt of multiTickets) {
+          const isDisabled = await mt.getAttribute("disabled");
+          const text = await mt.innerText().catch(() => "");
+          if (!isDisabled && !/sold out|sales ended|registration closed/i.test(text)) {
+            const plus = mt.locator(".count-button:not(.disabled)").last();
+            if ((await plus.count().catch(() => 0)) > 0) {
+              await plus.click({ force: true }).catch(() => {});
+            } else {
+              await mt.click({ force: true }).catch(() => {});
+            }
+            await page.waitForTimeout(400);
+            return true;
+          }
+        }
+      }
+    }
+
+    // 2. Single-select ticket buttons (e.g. button.ticket-type-btn:not(.multi))
+    const singleTickets = await root.locator("button.ticket-type-btn:not(.multi)").all();
+    if (singleTickets.length > 0) {
+      const hasSelected = (await root.locator("button.ticket-type-btn.selected").count().catch(() => 0)) > 0;
+      if (!hasSelected) {
+        console.log("   🎟️ Selecting first available ticket type...");
+        for (const st of singleTickets) {
+          const isDisabled = await st.getAttribute("disabled");
+          const text = await st.innerText().catch(() => "");
+          if (!isDisabled && !/sold out|sales ended|registration closed/i.test(text)) {
+            await st.click({ force: true }).catch(() => {});
+            await page.waitForTimeout(400);
+            return true;
+          }
+        }
+      }
+    }
+
+    return false;
+  }
+
+  private async findRegistrationButton(page: Page): Promise<any | null> {
+    const actionSelectors = [
+      "button.variant-color-primary:not(.ticket-type-btn):not([role='combobox'])",
+      "button.lux-button.brand:not(.ticket-type-btn):not([role='combobox'])",
+      "button.brand:not([role='combobox']):not(.ticket-type-btn)",
+      "button:not(.ticket-type-btn):not([role='combobox']):has-text('Request to Join')",
+      "button:not(.ticket-type-btn):not([role='combobox']):has-text('Register')",
+      "button:not(.ticket-type-btn):not([role='combobox']):has-text('RSVP')",
+      "button:not(.ticket-type-btn):not([role='combobox']):has-text('Join Event')",
+      "button:not(.ticket-type-btn):not([role='combobox']):has-text('Apply to Attend')",
+      "button:not(.ticket-type-btn):not([role='combobox']):has-text('Join Waitlist')",
+      "button:not(.ticket-type-btn):not([role='combobox']):has-text('Get Tickets')",
+      "button:not(.ticket-type-btn):not([role='combobox']):has-text('Apply')",
+      "a.btn:not(.ticket-type-btn):has-text('Register')",
+      "a.btn:not(.ticket-type-btn):has-text('Request to Join')",
+      "a.btn:not(.ticket-type-btn):has-text('RSVP')",
+      "a.btn:not(.ticket-type-btn):has-text('Join Waitlist')",
       "button:has-text('참가 신청')",
       "button:has-text('신청하기')",
       "button:has-text('등록')",
-      "button:has-text('제출')",
-      "button:has-text('다음')",
-      "button:has-text('Next')",
-      "button:has-text('Continue')",
+    ];
+
+    for (const sel of actionSelectors) {
+      const btn = page.locator(sel).first();
+      if ((await btn.count().catch(() => 0)) > 0 && (await btn.isVisible().catch(() => false))) {
+        return btn;
+      }
+    }
+    return null;
+  }
+
+  private async findSubmitButton(page: Page, dialog: any): Promise<any | null> {
+    const selectors = [
+      "button[type='submit']:not(.ticket-type-btn)",
+      "button.variant-color-brand:not(.ticket-type-btn)",
+      "button.variant-color-primary:not(.ticket-type-btn)",
+      "button.lux-button.brand:not(.ticket-type-btn)",
+      "button.brand:not([role='combobox']):not(.ticket-type-btn)",
+      ".lux-collapse.shown button:not(.ticket-type-btn)",
+      "button:not(.ticket-type-btn):not([role='combobox']):has-text('Request to Join')",
+      "button:not(.ticket-type-btn):not([role='combobox']):has-text('Register')",
+      "button:not(.ticket-type-btn):not([role='combobox']):has-text('RSVP')",
+      "button:not(.ticket-type-btn):not([role='combobox']):has-text('Submit')",
+      "button:not(.ticket-type-btn):not([role='combobox']):has-text('Join Waitlist')",
+      "button:not(.ticket-type-btn):not([role='combobox']):has-text('Apply to Join')",
+      "button:not(.ticket-type-btn):not([role='combobox']):has-text('Apply to Attend')",
+      "button:not(.ticket-type-btn):not([role='combobox']):has-text('Apply')",
+      "button:not(.ticket-type-btn):not([role='combobox']):has-text('Get Tickets')",
+      "button:not(.ticket-type-btn):has-text('참가 신청')",
+      "button:not(.ticket-type-btn):has-text('신청하기')",
+      "button:not(.ticket-type-btn):has-text('등록')",
+      "button:not(.ticket-type-btn):has-text('제출')",
+      "button:not(.ticket-type-btn):has-text('다음')",
+      "button:not(.ticket-type-btn):has-text('Next')",
+      "button:not(.ticket-type-btn):has-text('Continue')",
     ];
 
     if (dialog && (await dialog.count().catch(() => 0)) > 0) {

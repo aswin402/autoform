@@ -1,0 +1,196 @@
+[
+  {
+    "id": "devishree-mohan",
+    "name": "Devishree Mohan",
+    "firstName": "Devishree",
+    "lastName": "Mohan",
+    "email": "devishree@openledger.xyz",
+    "phone": "9620992718",
+    "company": "OpenLedger",
+    "role": "Head of Growth/Partnership",
+    "telegram": "@devishree_mohan",
+    "twitter": "https://x.com/devishreemohan",
+    "linkedin": "www.linkedin.com/in/devishreemohanhrprofessional",
+    "website": "openledger.xyz",
+    "pitch": "OpenLedger is the AI blockchain, unlocking liquidity to monetize data, models, apps and agents",
+    "gender": "Female",
+    "age": 28,
+    "country": "India",
+    "persona": {
+      "bio": "OpenLedger is the AI blockchain, unlocking liquidity to monetize data, models, apps and agents",
+      "primaryTrack": "Growth / Partnership",
+      "interests": ["AI", "Web3", "Infrastructure", "DeFi", "Data Monetization"]
+    },
+    "qaMemory": {
+      "how did you hear about this event": "X / Twitter",
+      "what is your aum": "$10M - $50M",
+      "what is your investment focus": "AI, Web3 Infrastructure, Modular Protocols, DeFi, Data",
+      "how did you hear about spacey ventures": "Twitter / X",
+      "what best describes you": "Head of Growth/Partnership",
+      "what are you hoping to gain from this event": "Networking with AI & Web3 founders, exploring partnerships, and ecosystem collaboration.",
+      "are you a 0g dev day sponsor please list which sponsor below.": "None",
+      "your role in the ecosystem": "Project",
+      "job title": "Head of Growth / Business Development",
+      "do you invest & average cheque size": "<$10,000",
+      "what is your average ticket size?": "<$10,000",
+      "who invited you?": "Twitter / Community",
+      "what is the name of the company/fund you represent?": "OpenLedger",
+      "please share a link of your company/fund": "https://openledger.xyz"
+    }
+  },
+  {
+    "id": "kameshwaran-elangovan",
+    "name": "Kameshwaran Elangovan",
+    "firstName": "Kameshwaran",
+    "lastName": "Elangovan",
+    "email": "Kamesh@openledger.xyz",
+    "phone": "9620992718",
+    "company": "OpenLedger",
+    "role": "Core Contributor",
+    "telegram": "@kamesh1ly",
+    "twitter": "https://x.com/ElangovanKamesh",
+    "linkedin": "www.linkedin.com/in/devishreemohanhrprofessional",
+    "website": "openledger.xyz",
+    "pitch": "OpenLedger is the AI blockchain, unlocking liquidity to monetize data, models, apps and agents",
+    "gender": "Male",
+    "age": 28,
+    "country": "India",
+    "persona": {
+      "bio": "OpenLedger is the AI blockchain, unlocking liquidity to monetize data, models, apps and agents",
+      "primaryTrack": "Engineering / Core Contributor",
+      "interests": ["AI", "Web3", "Infrastructure", "DeFi"]
+    },
+    "qaMemory": {
+      "how did you hear about this event": "X / Twitter",
+      "your role in the ecosystem": "Developer",
+      "job title": "Developer / Core Contributor",
+      "who invited you?": "Twitter / Community",
+      "what is the name of the company/fund you represent?": "OpenLedger",
+      "please share a link of your company/fund": "https://openledger.xyz"
+    }
+  },
+  {
+    "id": "ramkumar-subramanian",
+    "name": "Ramkumar Subramanian",
+    "firstName": "Ramkumar",
+    "lastName": "Subramanian",
+    "email": "ram@openledger.xyz",
+    "phone": "9790877980",
+    "company": "OpenLedger",
+    "role": "Core Contributor",
+    "telegram": "@ramkumarguardian",
+    "twitter": "https://x.com/Ramkumartweet",
+    "linkedin": "www.linkedin.com/in/devishreemohanhrprofessional",
+    "website": "openledger.xyz",
+    "pitch": "OpenLedger is the AI blockchain, unlocking liquidity to monetize data, models, apps and agents",
+    "gender": "Male",
+    "age": 29,
+    "country": "India",
+    "persona": {
+      "bio": "OpenLedger is the AI blockchain, unlocking liquidity to monetize data, models, apps and agents",
+      "primaryTrack": "Engineering / Protocol Architecture",
+      "interests": ["AI", "Web3", "Infrastructure", "DeFi"]
+    },
+    "qaMemory": {
+      "how did you hear about this event": "X / Twitter",
+      "your role in the ecosystem": "Developer",
+      "job title": "Protocol Architect",
+      "who invited you?": "Twitter / Community",
+      "what is the name of the company/fund you represent?": "OpenLedger",
+      "please share a link of your company/fund": "https://openledger.xyz"
+    }
+  },
+  {
+    "id": "jawwy-s",
+    "name": "Jawwy S",
+    "firstName": "Jawwy",
+    "lastName": "S",
+    "email": "jawwy@dopamint.xyz",
+    "phone": "9994157075",
+    "company": "DopaMint",
+    "role": "Co-Founder",
+    "telegram": "@jawwydope",
+    "twitter": "https://x.com/0xjawwy",
+    "linkedin": "https://www.linkedin.com/in/jawahar-s-4455b2a6/",
+    "website": "dopamint.xyz",
+    "pitch": "DopaMint is the House of Intent-Based Agents.",
+    "gender": "Male",
+    "age": 29,
+    "country": "India",
+    "persona": {
+      "bio": "DopaMint is the House of Intent-Based Agents.",
+      "primaryTrack": "Founder",
+      "interests": ["AI", "Web3", "Agents", "DeFi"]
+    },
+    "qaMemory": {
+      "how did you hear about this event": "X / Twitter",
+      "your role in the ecosystem": "Founder",
+      "job title": "Co-Founder",
+      "who invited you?": "Twitter / Community",
+      "what is the name of the company/fund you represent?": "DopaMint",
+      "please share a link of your company/fund": "https://dopamint.xyz"
+    }
+  },
+  {
+    "id": "u-v",
+    "name": "U V",
+    "firstName": "U",
+    "lastName": "V",
+    "email": "uv@dopamint.xyz",
+    "phone": "9344234101",
+    "company": "DopaMint",
+    "role": "Co-Founder",
+    "telegram": "@Yuvve_eth",
+    "twitter": "https://x.com/MrOneTweetMan",
+    "linkedin": "https://www.linkedin.com/in/jawahar-s-4455b2a6/",
+    "website": "dopamint.xyz",
+    "pitch": "DopaMint is the House of Intent-Based Agents.",
+    "gender": "Male",
+    "age": 28,
+    "country": "India",
+    "persona": {
+      "bio": "DopaMint is the House of Intent-Based Agents.",
+      "primaryTrack": "Founder",
+      "interests": ["AI", "Web3", "Agents", "DeFi"]
+    },
+    "qaMemory": {
+      "how did you hear about this event": "X / Twitter",
+      "your role in the ecosystem": "Founder",
+      "job title": "Co-Founder",
+      "who invited you?": "Twitter / Community",
+      "what is the name of the company/fund you represent?": "DopaMint",
+      "please share a link of your company/fund": "https://dopamint.xyz"
+    }
+  },
+  {
+    "id": "anup-kumar",
+    "name": "Anup Kumar",
+    "firstName": "Anup",
+    "lastName": "Kumar",
+    "email": "ap@i5.xyz",
+    "phone": "9344009429",
+    "company": "i5",
+    "role": "Core Contributor",
+    "telegram": "@aptradesi5",
+    "twitter": "https://x.com/anupkumar_96",
+    "linkedin": "https://www.linkedin.com/in/anup-kumar-aa4662131/",
+    "website": "i5.xyz",
+    "pitch": "i5 is the AI Exchange for Smarter Trading.",
+    "gender": "Male",
+    "age": 28,
+    "country": "India",
+    "persona": {
+      "bio": "i5 is the AI Exchange for Smarter Trading.",
+      "primaryTrack": "Trader / Contributor",
+      "interests": ["AI", "Trading", "DeFi", "Exchanges"]
+    },
+    "qaMemory": {
+      "how did you hear about this event": "X / Twitter",
+      "your role in the ecosystem": "Developer / Trader",
+      "job title": "Core Contributor",
+      "who invited you?": "Twitter / Community",
+      "what is the name of the company/fund you represent?": "i5",
+      "please share a link of your company/fund": "https://i5.xyz"
+    }
+  }
+]

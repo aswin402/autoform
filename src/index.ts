@@ -59,6 +59,22 @@ function parseArgs(): {
       } else {
         console.error("❌ data/red-events.json not found.");
       }
+    } else if (a === "--token2049" || a === "--token2049-free" || a === "--free-events") {
+      const freePath = path.resolve(process.cwd(), "data", "token2049-free-events.json");
+      if (fs.existsSync(freePath)) {
+        const raw = JSON.parse(fs.readFileSync(freePath, "utf-8"));
+        urls = raw.filter((e: any) => e.url && e.url.includes("luma.com") && e.linkWorking !== false).map((e: any) => e.url);
+      } else {
+        console.error("❌ data/token2049-free-events.json not found.");
+      }
+    } else if (a === "--successful" || a === "--token2049-successful" || a === "--260") {
+      const succPath = path.resolve(process.cwd(), "data", "token2049-successful-events.json");
+      if (fs.existsSync(succPath)) {
+        const raw = JSON.parse(fs.readFileSync(succPath, "utf-8"));
+        urls = raw.filter((e: any) => e.url && e.url.includes("luma.com") && e.linkWorking !== false).map((e: any) => e.url);
+      } else {
+        console.error("❌ data/token2049-successful-events.json not found.");
+      }
     }
   }
 
@@ -126,15 +142,28 @@ async function main() {
   // Filter or resolve target events
   let targetEvents: EventItem[];
   if (config.urls && config.urls.length > 0) {
+    let tokenFreeEvents: any[] = [];
+    const freePath = path.resolve(process.cwd(), "data", "token2049-free-events.json");
+    if (fs.existsSync(freePath)) {
+      try { tokenFreeEvents = JSON.parse(fs.readFileSync(freePath, "utf-8")); } catch {}
+    }
+
     targetEvents = config.urls.map((u, idx) => {
       const cleanU = u.trim();
-      const match = allEvents.find(e => e.url.toLowerCase() === cleanU.toLowerCase() || e.url.toLowerCase().includes(cleanU.toLowerCase()));
+      const match = allEvents.find(e => e.url.toLowerCase() === cleanU.toLowerCase() || e.url.toLowerCase().includes(cleanU.toLowerCase()))
+        || tokenFreeEvents.find(e => e.url && (e.url.toLowerCase() === cleanU.toLowerCase() || e.url.toLowerCase().includes(cleanU.toLowerCase())));
       if (match) {
-        return { ...match, soldOut: false }; // Force attempt requested event
+        return {
+          id: match.id ? (typeof match.id === "number" ? match.id : 9900000 + idx + 1) : 9900000 + idx + 1,
+          title: match.title || match.event_name || `Requested Event: ${cleanU.replace(/^https?:\/\//, "")}`,
+          url: cleanU,
+          isLuma: true,
+          soldOut: false
+        };
       }
       return {
         id: 9900000 + idx + 1,
-        title: `Requested Event: ${cleanU.replace(/^https?:\/\//, '')}`,
+        title: `Requested Event: ${cleanU.replace(/^https?:\/\//, "")}`,
         url: cleanU,
         isLuma: true,
         soldOut: false
